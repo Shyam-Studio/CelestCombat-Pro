@@ -29,7 +29,7 @@ import java.util.stream.Collectors;
 
 public class UpdateChecker implements Listener {
     private final JavaPlugin plugin;
-    private final String projectId = "sJEHxBdW";
+    private final String projectId = "Kp9Kt4QT";
     private boolean updateAvailable = false;
     private final String currentVersion;
     private String latestVersion = "";

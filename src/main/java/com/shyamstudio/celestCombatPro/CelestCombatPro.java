@@ -19,6 +19,8 @@ import com.shyamstudio.celestCombatPro.rewards.KillRewardManager;
 import com.shyamstudio.celestCombatPro.updates.ConfigUpdater;
 import com.shyamstudio.celestCombatPro.updates.LanguageUpdater;
 import com.shyamstudio.celestCombatPro.updates.UpdateChecker;
+import com.shyamstudio.celestCombatPro.api.CelestCombatAPI;
+import com.shyamstudio.celestCombatPro.api.CombatAPIImpl;
 import lombok.Getter;
 import lombok.experimental.Accessors;
 import org.bukkit.Bukkit;
@@ -47,6 +49,7 @@ public final class CelestCombatPro extends JavaPlugin {
   private NewbieProtectionManager newbieProtectionManager;
   private WorldGuardHook worldGuardHook;
   private GriefPreventionHook griefPreventionHook;
+  private CombatAPIImpl combatAPI;
 
   public static boolean hasWorldGuard = false;
   public static boolean hasGriefPrevention = false;
@@ -105,6 +108,9 @@ public final class CelestCombatPro extends JavaPlugin {
     commandManager = new CommandManager(this);
     commandManager.registerCommands();
 
+    combatAPI = new CombatAPIImpl(this, combatManager);
+    CelestCombatAPI.initialize(combatAPI);
+
     setupBtatsMetrics();
 
     long loadTime = System.currentTimeMillis() - startTime;
@@ -144,6 +150,8 @@ public final class CelestCombatPro extends JavaPlugin {
     if (newbieProtectionManager != null) {
       newbieProtectionManager.shutdown();
     }
+
+    CelestCombatAPI.shutdown();
 
     getLogger().info("CelestCombat has been disabled!");
   }
