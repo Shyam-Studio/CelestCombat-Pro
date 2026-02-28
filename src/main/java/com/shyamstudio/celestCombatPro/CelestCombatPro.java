@@ -12,6 +12,7 @@ import com.shyamstudio.celestCombatPro.listeners.CombatListeners;
 import com.shyamstudio.celestCombatPro.listeners.EnderPearlListener;
 import com.shyamstudio.celestCombatPro.hooks.protection.WorldGuardHook;
 import com.shyamstudio.celestCombatPro.hooks.protection.GriefPreventionHook;
+import com.shyamstudio.celestCombatPro.hooks.placeholders.CelestCombatExpansion;
 import com.shyamstudio.celestCombatPro.listeners.ItemRestrictionListener;
 import com.shyamstudio.celestCombatPro.listeners.TridentListener;
 import com.shyamstudio.celestCombatPro.protection.NewbieProtectionManager;
@@ -23,7 +24,6 @@ import com.shyamstudio.celestCombatPro.api.CelestCombatAPI;
 import com.shyamstudio.celestCombatPro.api.CombatAPIImpl;
 import lombok.Getter;
 import lombok.experimental.Accessors;
-import org.bukkit.Bukkit;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -50,9 +50,11 @@ public final class CelestCombatPro extends JavaPlugin {
   private WorldGuardHook worldGuardHook;
   private GriefPreventionHook griefPreventionHook;
   private CombatAPIImpl combatAPI;
+  private CelestCombatExpansion placeholderExpansion;
 
   public static boolean hasWorldGuard = false;
   public static boolean hasGriefPrevention = false;
+  public static boolean hasPlaceholderAPI = false;
 
   @Override
   public void onEnable() {
@@ -111,6 +113,19 @@ public final class CelestCombatPro extends JavaPlugin {
     combatAPI = new CombatAPIImpl(this, combatManager);
     CelestCombatAPI.initialize(combatAPI);
 
+    // PlaceholderAPI integration
+    if (isPluginEnabled("PlaceholderAPI")) {
+      try {
+        hasPlaceholderAPI = true;
+        placeholderExpansion = new CelestCombatExpansion(this);
+        if (placeholderExpansion.register()) {
+          getLogger().info("PlaceholderAPI integration enabled successfully!");
+        }
+      } catch (Exception e) {
+        getLogger().warning("Failed to register PlaceholderAPI expansion: " + e.getMessage());
+      }
+    }
+
     setupBtatsMetrics();
 
     long loadTime = System.currentTimeMillis() - startTime;
@@ -149,6 +164,14 @@ public final class CelestCombatPro extends JavaPlugin {
 
     if (newbieProtectionManager != null) {
       newbieProtectionManager.shutdown();
+    }
+
+    if (placeholderExpansion != null && hasPlaceholderAPI) {
+      try {
+        placeholderExpansion.unregister();
+      } catch (Exception e) {
+        getLogger().warning("Failed to unregister PlaceholderAPI expansion: " + e.getMessage());
+      }
     }
 
     CelestCombatAPI.shutdown();
@@ -192,9 +215,7 @@ public final class CelestCombatPro extends JavaPlugin {
   }
 
   private void setupBtatsMetrics() {
-    Scheduler.runTask(() -> {
-      Metrics metrics = new Metrics(this, 27299);
-    });
+    Scheduler.runTask(() -> new Metrics(this, 27299));
   }
 
   public long getTimeFromConfig(String path, String defaultValue) {

@@ -45,10 +45,6 @@ public class CombatManager {
     private boolean refreshCombatOnTridentLand;
     private Map<String, Boolean> worldTridentBannedSettings = new ConcurrentHashMap<>();
 
-    // Cleanup task for expired cooldowns
-    private Scheduler.Task cleanupTask;
-    private static final long CLEANUP_INTERVAL = 12000L; // 10 minutes in ticks
-
     public CombatManager(CelestCombatPro plugin) {
         this.plugin = plugin;
         this.playersInCombat = new ConcurrentHashMap<>();
@@ -149,7 +145,7 @@ public class CombatManager {
             long currentTime = System.currentTimeMillis();
 
             // Process all players in a single timer tick
-            for (Map.Entry<UUID, Long> entry : new HashMap<>(playersInCombat).entrySet()) {
+            playersInCombat.entrySet().removeIf(entry -> {
                 UUID playerUUID = entry.getKey();
                 long combatEndTime = entry.getValue();
 
@@ -160,14 +156,13 @@ public class CombatManager {
                         removeFromCombat(player);
                     } else {
                         // Player is offline, clean up
-                        playersInCombat.remove(playerUUID);
                         combatOpponents.remove(playerUUID);
                         Scheduler.Task task = combatTasks.remove(playerUUID);
                         if (task != null) {
                             task.cancel();
                         }
                     }
-                    continue;
+                    return true;
                 }
 
                 // Update countdown display for online players
@@ -175,14 +170,16 @@ public class CombatManager {
                 if (player != null && player.isOnline()) {
                     updatePlayerCountdown(player, currentTime);
                 }
-            }
+                return false;
+            });
 
-            // Handle ender pearl cooldowns
+            // Handle ender pearl cooldowns - optimized with removeIf
             enderPearlCooldowns.entrySet().removeIf(entry ->
                     currentTime > entry.getValue() ||
                             Bukkit.getPlayer(entry.getKey()) == null
             );
 
+            // Handle trident cooldowns - optimized with removeIf
             tridentCooldowns.entrySet().removeIf(entry ->
                     currentTime > entry.getValue() ||
                             Bukkit.getPlayer(entry.getKey()) == null
@@ -610,12 +607,6 @@ public class CombatManager {
         if (globalCountdownTask != null) {
             globalCountdownTask.cancel();
             globalCountdownTask = null;
-        }
-
-        // Cancel the cleanup task
-        if (cleanupTask != null) {
-            cleanupTask.cancel();
-            cleanupTask = null;
         }
 
         // Cancel all individual tasks

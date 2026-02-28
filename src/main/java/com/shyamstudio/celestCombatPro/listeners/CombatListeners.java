@@ -1,7 +1,6 @@
 package com.shyamstudio.celestCombatPro.listeners;
 
 import com.shyamstudio.celestCombatPro.CelestCombatPro;
-import com.shyamstudio.celestCombatPro.combat.CombatManager;
 import com.shyamstudio.celestCombatPro.combat.DeathAnimationManager;
 import com.shyamstudio.celestCombatPro.language.MessageService;
 import com.shyamstudio.celestCombatPro.protection.NewbieProtectionManager;
@@ -32,7 +31,6 @@ import java.util.concurrent.TimeUnit;
 
 public class CombatListeners implements Listener {
     private final CelestCombatPro plugin;
-    private CombatManager combatManager;
     private NewbieProtectionManager newbieProtectionManager;
     private KillRewardManager killRewardManager;
     private DeathAnimationManager deathAnimationManager;
@@ -48,7 +46,6 @@ public class CombatListeners implements Listener {
 
     public CombatListeners(CelestCombatPro plugin) {
         this.plugin = plugin;
-        this.combatManager = plugin.getCombatManager();
         this.newbieProtectionManager = plugin.getNewbieProtectionManager();
         this.killRewardManager = plugin.getKillRewardManager();
         this.deathAnimationManager = plugin.getDeathAnimationManager();
@@ -76,7 +73,6 @@ public class CombatListeners implements Listener {
      * Reload all manager references to apply configuration changes
      */
     public void reload() {
-        this.combatManager = plugin.getCombatManager();
         this.newbieProtectionManager = plugin.getNewbieProtectionManager();
         this.killRewardManager = plugin.getKillRewardManager();
         this.deathAnimationManager = plugin.getDeathAnimationManager();
@@ -87,21 +83,17 @@ public class CombatListeners implements Listener {
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onEntityDamageByEntity(EntityDamageByEntityEvent event) {
-        Player attacker = null;
-        Player victim = null;
-
-        if (event.getEntity() instanceof Player) {
-            victim = (Player) event.getEntity();
-        } else {
+        if (!(event.getEntity() instanceof Player)) {
             return;
         }
 
+        Player victim = (Player) event.getEntity();
+        Player attacker = null;
         Entity damager = event.getDamager();
 
         if (damager instanceof Player) {
             attacker = (Player) damager;
-        }
-        else if (damager instanceof Projectile) {
+        } else if (damager instanceof Projectile) {
             Projectile projectile = (Projectile) damager;
             if (projectile.getShooter() instanceof Player) {
                 attacker = (Player) projectile.getShooter();
@@ -109,50 +101,52 @@ public class CombatListeners implements Listener {
         }
 
         // Handle newbie protection checks
-        // Check if victim has newbie protection from PvP
-        if (attacker != null && newbieProtectionManager.shouldProtectFromPvP() &&
-                newbieProtectionManager.hasProtection(victim)) {
+        if (attacker != null) {
+            // Check if victim has newbie protection from PvP
+            if (newbieProtectionManager.shouldProtectFromPvP() &&
+                    newbieProtectionManager.hasProtection(victim)) {
 
-            // Handle the protection (sends messages and potentially removes protection)
-            boolean shouldBlock = newbieProtectionManager.handleDamageReceived(victim, attacker);
-            if (shouldBlock) {
+                // Handle the protection (sends messages and potentially removes protection)
+                if (newbieProtectionManager.handleDamageReceived(victim, attacker)) {
+                    event.setCancelled(true);
+                    plugin.debug("Blocked PvP damage to protected newbie: " + victim.getName());
+                    return;
+                }
+            }
+
+            // Handle when protected player deals damage (removes protection if configured)
+            if (newbieProtectionManager.hasProtection(attacker)) {
+                newbieProtectionManager.handleDamageDealt(attacker);
+            }
+
+            // Continue with normal combat logic if damage wasn't blocked
+            if (!attacker.equals(victim)) {
+                // Track this as the most recent damage source
+                UUID victimId = victim.getUniqueId();
+                lastDamageSource.put(victimId, attacker.getUniqueId());
+                lastDamageTime.put(victimId, System.currentTimeMillis());
+
+                // Determine combat cause
+                PreCombatEvent.CombatCause cause = damager instanceof Projectile 
+                    ? PreCombatEvent.CombatCause.PROJECTILE 
+                    : PreCombatEvent.CombatCause.PLAYER_ATTACK;
+
+                // Combat tag both players using API
+                CelestCombatAPI.getCombatAPI().tagPlayer(attacker, victim, cause);
+                CelestCombatAPI.getCombatAPI().tagPlayer(victim, attacker, cause);
+
+                // Perform cleanup of stale records periodically
+                if (lastDamageTime.size() > 100) {
+                    cleanupStaleDamageRecords();
+                }
+            }
+        } else {
+            // Check if victim has newbie protection from mobs
+            if (newbieProtectionManager.shouldProtectFromMobs() &&
+                    newbieProtectionManager.hasProtection(victim)) {
                 event.setCancelled(true);
-                plugin.debug("Blocked PvP damage to protected newbie: " + victim.getName());
-                return;
+                plugin.debug("Blocked mob damage to protected newbie: " + victim.getName());
             }
-        }
-
-        // Check if victim has newbie protection from mobs (when attacker is null or not a player)
-        else if (attacker == null && newbieProtectionManager.shouldProtectFromMobs() &&
-                newbieProtectionManager.hasProtection(victim)) {
-            event.setCancelled(true);
-            plugin.debug("Blocked mob damage to protected newbie: " + victim.getName());
-            return;
-        }
-
-        // Handle when protected player deals damage (removes protection if configured)
-        if (attacker != null && newbieProtectionManager.hasProtection(attacker)) {
-            newbieProtectionManager.handleDamageDealt(attacker);
-        }
-
-        // Continue with normal combat logic if damage wasn't blocked
-        if (attacker != null && victim != null && !attacker.equals(victim)) {
-            // Track this as the most recent damage source
-            lastDamageSource.put(victim.getUniqueId(), attacker.getUniqueId());
-            lastDamageTime.put(victim.getUniqueId(), System.currentTimeMillis());
-
-            // Determine combat cause
-            PreCombatEvent.CombatCause cause = PreCombatEvent.CombatCause.PLAYER_ATTACK;
-            if (damager instanceof Projectile) {
-                cause = PreCombatEvent.CombatCause.PROJECTILE;
-            }
-
-            // Combat tag both players using API
-            CelestCombatAPI.getCombatAPI().tagPlayer(attacker, victim, cause);
-            CelestCombatAPI.getCombatAPI().tagPlayer(victim, attacker, cause);
-
-            // Perform cleanup of stale records
-            cleanupStaleDamageRecords();
         }
     }
 
@@ -245,19 +239,21 @@ public class CombatListeners implements Listener {
             // Perform death animation
             deathAnimationManager.performDeathAnimation(victim, killer);
 
-            // Remove from combat
-            CelestCombatAPI.getCombatAPI().removeFromCombat(victim);
-            CelestCombatAPI.getCombatAPI().removeFromCombat(killer);
+            // Remove from combat - killer's combat timer is removed on kill
+            CelestCombatAPI.getCombatAPI().removeFromCombatSilently(victim);
+            CelestCombatAPI.getCombatAPI().removeFromCombatSilently(killer);
         }
         // If player died by other causes but was in combat
         else if (CelestCombatAPI.getCombatAPI().isInCombat(victim)) {
             Player opponent = CelestCombatAPI.getCombatAPI().getCombatOpponent(victim);
 
             // Check if we have an opponent or a recent damage source
+            Player actualKiller = null;
             if (opponent != null && opponent.isOnline()) {
                 // Give rewards to the combat opponent
                 killRewardManager.giveKillReward(opponent, victim);
                 deathAnimationManager.performDeathAnimation(victim, opponent);
+                actualKiller = opponent;
             } else if (lastDamageSource.containsKey(victimId)) {
                 // Try to get the last player who damaged this player
                 UUID lastAttackerUuid = lastDamageSource.get(victimId);
@@ -266,6 +262,7 @@ public class CombatListeners implements Listener {
                 if (lastAttacker != null && lastAttacker.isOnline() && !lastAttacker.equals(victim)) {
                     killRewardManager.giveKillReward(lastAttacker, victim);
                     deathAnimationManager.performDeathAnimation(victim, lastAttacker);
+                    actualKiller = lastAttacker;
                 } else {
                     // No valid attacker found
                     deathAnimationManager.performDeathAnimation(victim, null);
@@ -275,10 +272,12 @@ public class CombatListeners implements Listener {
                 deathAnimationManager.performDeathAnimation(victim, null);
             }
 
-            // Clean up combat state
-            CelestCombatAPI.getCombatAPI().removeFromCombat(victim);
-            if (opponent != null) {
-                CelestCombatAPI.getCombatAPI().removeFromCombat(opponent);
+            // Clean up combat state - remove killer's combat timer on kill
+            CelestCombatAPI.getCombatAPI().removeFromCombatSilently(victim);
+            if (actualKiller != null) {
+                CelestCombatAPI.getCombatAPI().removeFromCombatSilently(actualKiller);
+            } else if (opponent != null) {
+                CelestCombatAPI.getCombatAPI().removeFromCombatSilently(opponent);
             }
 
             // Clean up damage tracking
