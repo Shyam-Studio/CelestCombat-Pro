@@ -10,6 +10,7 @@ soft-depend:
   - WorldGuard
   - Multiverse-Core
   - Worlds
+  - PlaceholderAPI
 
 commands:
   celestcombat:
